@@ -22,6 +22,7 @@ def get_news():
             return None
     except Exception as e:
         print(f"An error occurred while retrieving news: {e}")
+        return None
 
 def post_news(news):
     news_poster = NewsPoster()

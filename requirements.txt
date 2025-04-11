@@ -6,3 +6,5 @@ newspaper4k
 beautifulsoup4
 lxml[html_clean]
 gnews
+bs4
+pyqt5

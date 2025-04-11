@@ -55,23 +55,23 @@ class ToolManager:
         )
         response.raise_for_status()
         return [json.loads(res[2])[1] for res in json.loads(response.text.split("\n\n")[1])[:-2]]
-    # from googlenewsdecoder import gnewsdecoder
+     from googlenewsdecoder import gnewsdecoder
 
-    # def decode_urls(self, articles):
-    #     print('Articles:', articles)
-    #     interval_time = 1  # interval is optional, default is None
+     def decode_urls(self, articles):
+         print('Articles:', articles)
+         interval_time = 1  # interval is optional, default is None
 
-    #     source_url = "https://news.google.com/read/CBMi2AFBVV95cUxPd1ZCc1loODVVNHpnbFFTVHFkTG94eWh1NWhTeE9yT1RyNTRXMVV2S1VIUFM3ZlVkVjl6UHh3RkJ0bXdaTVRlcHBjMWFWTkhvZWVuM3pBMEtEdlllRDBveGdIUm9GUnJ4ajd1YWR5cWs3VFA5V2dsZnY1RDZhVDdORHRSSE9EalF2TndWdlh4bkJOWU5UMTdIV2RCc285Q2p3MFA4WnpodUNqN1RNREMwa3d5T2ZHS0JlX0MySGZLc01kWDNtUEkzemtkbWhTZXdQTmdfU1JJaXY?hl=en-US&gl=US&ceid=US%3Aen"
+         source_url = "https://news.google.com/read/CBMi2AFBVV95cUxPd1ZCc1loODVVNHpnbFFTVHFkTG94eWh1NWhTeE9yT1RyNTRXMVV2S1VIUFM3ZlVkVjl6UHh3RkJ0bXdaTVRlcHBjMWFWTkhvZWVuM3pBMEtEdlllRDBveGdIUm9GUnJ4ajd1YWR5cWs3VFA5V2dsZnY1RDZhVDdORHRSSE9EalF2TndWdlh4bkJOWU5UMTdIV2RCc285Q2p3MFA4WnpodUNqN1RNREMwa3d5T2ZHS0JlX0MySGZLc01kWDNtUEkzemtkbWhTZXdQTmdfU1JJaXY?hl=en-US&gl=US&ceid=US%3Aen"
 
-    #     try:
-    #         decoded_url = gnewsdecoder(source_url, interval=interval_time)
+         try:
+             decoded_url = gnewsdecoder(source_url, interval=interval_time)
 
-    #         if decoded_url.get("status"):
-    #             print("Decoded URL:", decoded_url["decoded_url"])
-    #         else:
-    #             print("Error:", decoded_url["message"])
-    #     except Exception as e:
-    #         print(f"Error occurred: {e}")
+             if decoded_url.get("status"):
+                 print("Decoded URL:", decoded_url["decoded_url"])
+             else:
+                 print("Error:", decoded_url["message"])
+         except Exception as e:
+             print(f"Error occurred: {e}")
 
     def deduplicate_news_list(self, urls, keywords):
         urls_dict = {}

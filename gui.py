@@ -9,7 +9,9 @@ from news_poster import NewsPoster
 import os
 from dotenv import load_dotenv
 import newspaper
-newspaper.settings.CACHE_DIRECTORY = newspaper.settings.CF_CACHE_DIRECTORY
+#newspaper.settings.CACHE_DIRECTORY = newspaper.settings.CF_CACHE_DIRECTORY
+newspaper.settings.CACHE_DIRECTORY = newspaper.settings.CACHE_DIRECTORY
+
 
 load_dotenv()
 

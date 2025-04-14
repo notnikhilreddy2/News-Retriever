@@ -1,5 +1,5 @@
 python-dotenv
-pyautogen
+pyautogen==0.8.5
 pandas
 pyshorteners
 newspaper4k
@@ -8,3 +8,4 @@ lxml[html_clean]
 gnews
 bs4
 pyqt5
+numpy

@@ -14,7 +14,7 @@ class ToolManager:
     def __init__(self, article_count=10, cache_dir=".cache", exclude_websites=None):
         self.article_count = article_count
         self.cache_dir = cache_dir
-        self.urls_file = f"{self.cache_dir}/urls.csv"
+        self.urls_file = f"{self.cache_dir}/news_database.csv"
         self.google_news = GNews()
         self.google_news.period = '1h'
         self.google_news.max_results = self.article_count
@@ -96,7 +96,7 @@ class ToolManager:
 
     def read_news_articles(self, urls, keywords):
         if not os.path.isfile(self.urls_file):
-            df_urls = pd.DataFrame(columns=['urls', 'status'])
+            df_urls = pd.DataFrame(columns=['source', 'keyword', 'title', 'content', 'status'])
             df_urls.to_csv(self.urls_file)
         else:
             df_urls = pd.read_csv(self.urls_file, index_col='Unnamed: 0')
@@ -114,13 +114,15 @@ class ToolManager:
                 article.download()
                 article.parse()
                 if article.text and len(article.text.strip().split('\n')) > 1:
-                    df_urls = pd.concat([pd.DataFrame([[urls[i], 'success']], columns=df_urls.columns), df_urls], ignore_index=True)
                     article.keyword = keywords[i]
+                    df_urls = pd.concat([pd.DataFrame([[urls[i], article.keyword, article.title, article.text.replace('\n\n', '\n'), 'success']], columns=df_urls.columns), df_urls], ignore_index=True)
                     article_list.append(article)
                 else:
-                    df_urls = pd.concat([pd.DataFrame([[urls[i], 'empty content']], columns=df_urls.columns), df_urls], ignore_index=True)
+                    df_urls = pd.concat([pd.DataFrame([[urls[i], None, None, None, 'empty content']], columns=df_urls.columns), df_urls], ignore_index=True)
             except Exception as e:
-                df_urls = pd.concat([pd.DataFrame([[urls[i], 'scraping error']], columns=df_urls.columns), df_urls], ignore_index=True)
+                import traceback
+                traceback.print_exc()
+                df_urls = pd.concat([pd.DataFrame([[urls[i], None, None, None, 'scraping error']], columns=df_urls.columns), df_urls], ignore_index=True)
         df_urls.to_csv(self.urls_file)
         return article_list
 

@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import json
 import ast
 import praw
+import pandas as pd
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
                              QVBoxLayout, QHBoxLayout, QWidget, QFrame,
                              QMessageBox, QTextEdit, QLineEdit, QComboBox, QDialog, QFormLayout)
@@ -54,11 +55,13 @@ class LoadingSpinner(QFrame):
         self.update()
 
 class DailyPlanetPortal(QMainWindow):
-    def __init__(self):
+    def __init__(self, cache_dir=".cache"):
         super().__init__()
         self.reddit = None
         self.authenticated = False
         self.loading_value = 0
+        self.cache_dir = cache_dir
+        self.news_database = f"{self.cache_dir}/news_database.csv"
         self.news_manager = NewsManager()
 
         self.messages = [
@@ -259,13 +262,14 @@ class DailyPlanetPortal(QMainWindow):
         dialog.resize(400, 300)
         layout = QFormLayout()
 
-        self.sample_titles = [
-            "Breaking: AI Model Sets New Accuracy Record",
-            "Python 3.13 Beta Released!",
-            "F1 2025 Season Kick-off Details",
-            "World Leaders Convene for Climate Talks"
-        ]
-        # get news titles and body from the saved csv
+        self.sample_titles = pd.read_csv(self.news_database, usecols=['title'])['title'].dropna().tolist()
+        self.sample_titles = list(set(self.sample_titles))
+        # self.sample_titles = [
+        #     "Breaking: AI Model Sets New Accuracy Record",
+        #     "Python 3.13 Beta Released!",
+        #     "F1 2025 Season Kick-off Details",
+        #     "World Leaders Convene for Climate Talks"
+        # ]
 
         self.title_dropdown = QComboBox()
         self.title_dropdown.addItems(self.sample_titles)

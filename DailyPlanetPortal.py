@@ -54,6 +54,49 @@ class LoadingSpinner(QFrame):
         self._progress = value
         self.update()
 
+class NewsBrowserDialog(QDialog):
+    def __init__(self, news_manager, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🔥 Browse Hot News")
+        self.resize(600, 500)
+
+        self.news_manager = news_manager
+
+        vbox = QVBoxLayout(self)
+
+        hbox = QHBoxLayout()
+        self.keyword_edit = QLineEdit()
+        self.keyword_edit.setPlaceholderText("keyword (e.g. AI, climate, F1 …)")
+        search_btn = QPushButton("Search")
+        search_btn.clicked.connect(self.run_search)
+        hbox.addWidget(self.keyword_edit, 1)
+        hbox.addWidget(search_btn)
+        vbox.addLayout(hbox)
+
+        self.results = QTextEdit(readOnly=True)
+        self.results.setStyleSheet("font: 12px 'Courier New';")
+        vbox.addWidget(self.results, 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        vbox.addWidget(close_btn, alignment=Qt.AlignRight)
+
+    def run_search(self):
+        topic = self.keyword_edit.text().strip() or "AI"
+        try:
+            raw = self.news_manager.get_news(topic, 5)
+            news = ast.literal_eval(raw) if isinstance(raw, str) else raw
+
+            lines = []
+            for k, item in news.items():
+                lines.append(f"📰  {item['TITLE']}\n"
+                             f"    • Topic  : {item['TOPIC']}\n"
+                             f"    • Source : {item['SOURCE']}\n"
+                             f"    • Preview: {item['CONTENT'][:160]}…\n")
+            self.results.setPlainText("\n".join(lines) or "No stories found.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
 class DailyPlanetPortal(QMainWindow):
     def __init__(self, cache_dir=".cache"):
         super().__init__()
@@ -307,18 +350,20 @@ class DailyPlanetPortal(QMainWindow):
 
     def browse_hot_news(self):
         try:
-            topic = os.getenv("SEARCH_KEYWORD", "AI") # get from input box
-            news = self.news_manager.get_news(topic, 5)
-            print('NEWS: ', news)
-            #convert news to json
-            news = ast.literal_eval(news)
-            # news = json.loads(news)
-            # print(news)
-            print(type(news))
+            dlg = NewsBrowserDialog(self.news_manager, self)
+            dlg.exec_()
+            # topic = os.getenv("SEARCH_KEYWORD", "AI") # get from input box
+            # news = self.news_manager.get_news(topic, 5)
+            # print('NEWS: ', news)
+            # #convert news to json
+            # news = ast.literal_eval(news)
+            # # news = json.loads(news)
+            # # print(news)
+            # print(type(news))
 
-            # hot_posts = self.reddit.subreddit("worldnews+technology+python+F1+machinelearning").hot(limit=5)
-            posts_info = "\n\n".join([f"{n['TITLE']}\n{n['SOURCE']}" for n in news.values()])
-            QMessageBox.information(self, "Trending News", posts_info or "No trending news found.")
+            # # hot_posts = self.reddit.subreddit("worldnews+technology+python+F1+machinelearning").hot(limit=5)
+            # posts_info = "\n\n".join([f"{n['TITLE']}\n{n['SOURCE']}" for n in news.values()])
+            # QMessageBox.information(self, "Trending News", posts_info or "No trending news found.")
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 

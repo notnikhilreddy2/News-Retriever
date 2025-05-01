@@ -9,3 +9,4 @@ gnews
 bs4
 pyqt5
 numpy
+praw

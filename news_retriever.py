@@ -1,4 +1,4 @@
-'''import os
+import os
 import json
 import pandas as pd
 import random
@@ -30,7 +30,7 @@ class NewsRetriever:
         self.news_collector_agent = AssistantAgent(
             "news_collector_agent",
             llm_config=llm_config,
-            system_message=f"""You are good at collecting recent news articles about a given keyword on the internet. 
+            system_message=f"""You are good at collecting recent news articles. 
             You should generate a list of {self.KEYWORD_COUNT} topics closely related to the given keyword. 
             Use the provided tool to collect news about the generated list of topics.""",
             max_consecutive_auto_reply=1
@@ -54,13 +54,13 @@ class NewsRetriever:
             # print('NEWS: ', news)
             return news
 
-    def get_news(self):
+    def get_news(self, topic, count):
         try:
             if self.AUTO_GENERATE_KEYWORDS==True:
                 chat_results = self.user_proxy_agent.initiate_chats([
                     {
                         "recipient": self.news_collector_agent,
-                        "message": f"Collect {self.KEYWORD_COUNT} news articles about the topic '{self.SEARCH_KEYWORD}' from the internet.",
+                        "message": f"Collect {count} news articles about the topic '{topic}' from the internet.",
                         "clear_history": True,
                         "silent": False,
                         "summary_method": "last_msg",
@@ -69,94 +69,35 @@ class NewsRetriever:
                 # print('CHAT RESULTS: ', chat_results[0].summary)
                 return chat_results[0].summary
             else:
-                pass
-                # return None
+                # pass
+                return None
                 
         except Exception as e:
             print(f"Global Error: {str(e)}")
             raise e
-'''
 
-import os
-from autogen import AssistantAgent, UserProxyAgent
-from tool_manager import ToolManager
-from typing import Annotated
 
-import os
-import praw
-from dotenv import load_dotenv
+# import os
+# import praw
+# from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
 
-reddit = praw.Reddit(
-    client_id=os.getenv("REDDIT_CLIENT_ID"),
-    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-    username=os.getenv("REDDIT_USERNAME"),
-    password=os.getenv("REDDIT_PASSWORD"),
-    user_agent=os.getenv("REDDIT_USER_AGENT"),
-)
+# reddit = praw.Reddit(
+#     client_id=os.getenv("REDDIT_CLIENT_ID"),
+#     client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+#     username=os.getenv("REDDIT_USERNAME"),
+#     password=os.getenv("REDDIT_PASSWORD"),
+#     user_agent=os.getenv("REDDIT_USER_AGENT"),
+# )
 
-# Test: Print logged-in user
-print("Logged in as:", reddit.user.me())
+# # Test: Print logged-in user
+# print("Logged in as:", reddit.user.me())
 
-# Try posting
-subreddit = reddit.subreddit("test")  # Use r/test for safe testing
-submission = subreddit.submit(
-    title="Test post from Python",
-    selftext="This is a test post made using PRAW and a script app."
-)
-print("Post submitted:", submission.url)
-class NewsRetriever:
-    def __init__(self):
-        self.SEARCH_KEYWORD = os.getenv("SEARCH_KEYWORD")
-        self.ARTICLE_COUNT = int(os.getenv("ARTICLE_COUNT", 3))
-        self.KEYWORD_COUNT = int(os.getenv("KEYWORD_COUNT", 3))
-        self.NEWS_COUNTRY = os.getenv("NEWS_COUNTRY")
-        self.AUTO_GENERATE_KEYWORDS = os.getenv("AUTO_GENERATE_KEYWORDS", "True") == "True"
-
-        self.GROQ_API_BASE = os.getenv("GROQ_API_BASE")
-        self.GROQ_MODEL_NAME = os.getenv("GROQ_MODEL_NAME")
-        self.GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-        # Optional: Keep agents defined in case you want to use them later
-        llm_config = {
-            "cache_seed": 42,
-            "config_list": [{
-                "model": self.GROQ_MODEL_NAME,
-                "api_key": self.GROQ_API_KEY,
-                "base_url": self.GROQ_API_BASE
-            }],
-        }
-
-        self.news_collector_agent = AssistantAgent(
-            "news_collector_agent",
-            llm_config=llm_config,
-            system_message="You are good at collecting recent news articles.",
-            max_consecutive_auto_reply=1
-        )
-
-        self.user_proxy_agent = UserProxyAgent(
-            name="User",
-            system_message="You are a helpful AI assistant. Return 'TERMINATE' when the task is done.",
-            is_termination_msg=lambda msg: msg.get("content") is not None and "TERMINATE" in msg["content"],
-            human_input_mode="NEVER",
-            code_execution_config=False,
-        )
-
-        self.news_collector_agent.register_for_llm(name="get_news_articles_tool", description="Collect news articles about a list of topics on the internet.")(self.get_news_articles_tool)
-        self.user_proxy_agent.register_for_execution(name="get_news_articles_tool")(self.get_news_articles_tool)
-
-    @staticmethod
-    def get_news_articles_tool(keyword_list: Annotated[list, "List of keywords"], count: Annotated[int, "Number of articles to fetch"]):
-        tool_manager = ToolManager()
-        news = tool_manager.get_news_articles(keyword_list, count)
-        return news
-
-    def get_news(self):
-        try:
-            # Simple direct call to tool with just the main keyword
-            keywords = [self.SEARCH_KEYWORD]
-            return self.get_news_articles_tool(keywords, self.ARTICLE_COUNT)
-        except Exception as e:
-            print(f"Global Error: {str(e)}")
-            raise e
+# # Try posting
+# subreddit = reddit.subreddit("test")  # Use r/test for safe testing
+# submission = subreddit.submit(
+#     title="Test post from Python",
+#     selftext="This is a test post made using PRAW and a script app."
+# )
+# print("Post submitted:", submission.url)

@@ -101,8 +101,8 @@ class ToolManager:
         else:
             df_urls = pd.read_csv(self.urls_file, index_col='Unnamed: 0')
 
-        urls = [url for url in urls if url not in df_urls['urls'].values]
-        # urls, keywords = self.deduplicate_news_list(urls, keywords)
+        # urls = [url for url in urls if url not in df_urls['urls'].values]
+        urls, keywords = self.deduplicate_news_list(urls, keywords)
 
         if len(urls) == 0:
             return []
@@ -129,7 +129,11 @@ class ToolManager:
         urls, keywords = [], []
 
         for keyword in keyword_list:
-            sources = self.google_news.get_news(keyword)
+            try:
+                sources = self.google_news.get_news(keyword)
+            except Exception as e:
+                print(f"Error fetching news for {keyword}: {e}")
+                continue
             print('SOURCES: ', sources)
             for source in sources:
                 try:
@@ -147,9 +151,11 @@ class ToolManager:
                     import traceback
                     traceback.print_exc()
                     print(f"Error decoding URL for {keyword}: {e}")
+                    continue
 
         if len(urls) == 0:
-            return {'NEWS 1': {'TOPIC': 'AI', 'TITLE': 'Decagon Named to 2025 Forbes AI 50 List of Top Artificial Intelligence Companies', 'CONTENT': 'SAN FRANCISCO--(BUSINESS WIRE)--Decagon, the leading innovator in conversational AI agents for customer experience, today announced it has been named to the 2025 Forbes AI 50 — Forbes\' annual list of the most promising, privately-held companies using artificial intelligence to shape the future of business and society. This marks Decagon’s first appearance on the prestigious list, which spotlights standout AI companies across North America.\n"Being able to effectively handle tasks like refunds or account changes is table stakes. What sets the best products apart is their ability to meet customers where they are, completing complex workflows and delivering deeply personalized experiences."\nShare\nWith growing hype around AI agents, few companies have delivered meaningful, enterprise-ready results. Decagon sets itself apart by building AI agents that drive immediate and measurable impact. Its technology is used by well-known companies — including Hertz, Eventbrite, Duolingo, ClassPass, Noti', 'SOURCE': 'https://tinyurl.com/2dm2xvn4'}}
+            # default news
+            return {"NEWS 1": {"TOPIC": "AI", "TITLE": "Decagon Named to 2025 Forbes AI 50 List of Top Artificial Intelligence Companies", "CONTENT": "SAN FRANCISCO--(BUSINESS WIRE)--Decagon, the leading innovator in conversational AI agents for customer experience, today announced it has been named to the 2025 Forbes AI 50 — Forbes\" annual list of the most promising, privately-held companies using artificial intelligence to shape the future of business and society. This marks Decagon’s first appearance on the prestigious list, which spotlights standout AI companies across North America.\n'Being able to effectively handle tasks like refunds or account changes is table stakes. What sets the best products apart is their ability to meet customers where they are, completing complex workflows and delivering deeply personalized experiences.'\nShare\nWith growing hype around AI agents, few companies have delivered meaningful, enterprise-ready results. Decagon sets itself apart by building AI agents that drive immediate and measurable impact. Its technology is used by well-known companies — including Hertz, Eventbrite, Duolingo, ClassPass, Noti", "SOURCE": "https://tinyurl.com/2dm2xvn4"}}
             # return None
 
         # print('URLs: ', urls)

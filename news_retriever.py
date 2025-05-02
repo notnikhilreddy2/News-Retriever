@@ -75,29 +75,3 @@ class NewsRetriever:
         except Exception as e:
             print(f"Global Error: {str(e)}")
             raise e
-
-
-# import os
-# import praw
-# from dotenv import load_dotenv
-
-# load_dotenv()
-
-# reddit = praw.Reddit(
-#     client_id=os.getenv("REDDIT_CLIENT_ID"),
-#     client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-#     username=os.getenv("REDDIT_USERNAME"),
-#     password=os.getenv("REDDIT_PASSWORD"),
-#     user_agent=os.getenv("REDDIT_USER_AGENT"),
-# )
-
-# # Test: Print logged-in user
-# print("Logged in as:", reddit.user.me())
-
-# # Try posting
-# subreddit = reddit.subreddit("test")  # Use r/test for safe testing
-# submission = subreddit.submit(
-#     title="Test post from Python",
-#     selftext="This is a test post made using PRAW and a script app."
-# )
-# print("Post submitted:", submission.url)

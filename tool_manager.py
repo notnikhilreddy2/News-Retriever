@@ -8,11 +8,12 @@ from newspaper import Article
 from pyshorteners import Shortener
 from typing import Annotated
 from gnews import GNews
-
+import random
+from datetime import datetime, timedelta
 
 
 class ToolManager:
-    def __init__(self, article_count=10, cache_dir=".cache", exclude_websites=None):
+    def __init__(self, article_count=5, cache_dir=".cache", exclude_websites=None):
         self.article_count = article_count
         self.cache_dir = cache_dir
         self.urls_file = f"{self.cache_dir}/news_database.csv"
@@ -135,13 +136,16 @@ class ToolManager:
         for keyword in keyword_list:
             try:
                 # sources = self.google_news.get_news(keyword)
-                url = ('https://newsapi.org/v2/top-headlines?'
-                    'country=us&'
+                url = ('https://newsapi.org/v2/everything?'
+                    f'q={keyword}&'
+                    f'from={(datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")}&'
+                    'sortBy=popularity&'
                     f'apiKey={self.NEWSAPI_KEY}')
                 # print('URL: ', url)
                 response = requests.get(url).json()
                 sources = response['articles']
                 sources = [source['url'] for source in sources if source['url']]
+                sources = random.sample(sources, min(count, len(sources)))
                 # print('SOURCES: ', sources)
                 # print(response.json())
             except Exception as e:
@@ -158,7 +162,7 @@ class ToolManager:
                     # print('DECODED: ', decoded)
                     if source:
                         urls.append(source)
-                        keywords.append([keyword])
+                        keywords.append(keyword)
                 except Exception as e:
                     #print stack trace
                     import traceback

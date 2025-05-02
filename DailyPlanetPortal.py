@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
 from PyQt5.QtGui import (QPixmap, QPalette, QBrush, QPainter, QColor, QFont, QImage)
 from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QRectF, pyqtProperty)
 from news_manager import NewsManager
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -54,6 +55,7 @@ class LoadingSpinner(QFrame):
         self._progress = value
         self.update()
 
+
 class NewsBrowserDialog(QDialog):
     def __init__(self, news_manager, parent=None):
         super().__init__(parent)
@@ -61,18 +63,28 @@ class NewsBrowserDialog(QDialog):
         self.resize(600, 500)
 
         self.news_manager = news_manager
+        self.db_path = getattr(self.news_manager, "urls_file",
+                               os.path.join(".cache", "news_database.csv"))
 
         vbox = QVBoxLayout(self)
 
+        # top bar:   [ keyword box ] [Search] [History]
         hbox = QHBoxLayout()
         self.keyword_edit = QLineEdit()
         self.keyword_edit.setPlaceholderText("keyword (e.g. AI, climate, F1 …)")
+
         search_btn = QPushButton("Search")
         search_btn.clicked.connect(self.run_search)
+
+        history_btn = QPushButton("History")
+        history_btn.clicked.connect(self.show_history)
+
         hbox.addWidget(self.keyword_edit, 1)
         hbox.addWidget(search_btn)
+        hbox.addWidget(history_btn)
         vbox.addLayout(hbox)
 
+        # results pane
         self.results = QTextEdit(readOnly=True)
         self.results.setStyleSheet("font: 12px 'Courier New';")
         vbox.addWidget(self.results, 1)
@@ -81,21 +93,78 @@ class NewsBrowserDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         vbox.addWidget(close_btn, alignment=Qt.AlignRight)
 
-    def run_search(self):
-        topic = self.keyword_edit.text().strip() or "AI"
-        try:
-            raw = self.news_manager.get_news(topic, 5)
-            news = ast.literal_eval(raw) if isinstance(raw, str) else raw
+        # ← show history immediately
+        self.show_history()
 
-            lines = []
-            for k, item in news.items():
-                lines.append(f"📰  {item['TITLE']}\n"
-                             f"    • Topic  : {item['TOPIC']}\n"
-                             f"    • Source : {item['SOURCE']}\n"
-                             f"    • Preview: {item['CONTENT'][:160]}…\n")
-            self.results.setPlainText("\n".join(lines) or "No stories found.")
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _format_items(self, items):
+        lines = []
+        for item in items:
+            lines.append(f"📰  {item['TITLE']}\n"
+                         f"    • Topic  : {item['TOPIC']}\n"
+                         f"    • Source : {item['SOURCE']}\n"
+                         f"    • Preview: {item['CONTENT'][:160]}…\n")
+        return "\n".join(lines) if lines else "No stories found."
+
+    # load most‑recent cached rows
+    def show_history(self, count: int = 10):
+        """
+        Display the latest `count` successfully‑scraped stories
+        from the local CSV cache.  Newest first.
+        """
+        try:
+            if not os.path.isfile(self.db_path):
+                self.results.setPlainText("No history yet.")
+                return
+
+            df = pd.read_csv(self.db_path)
+
+            # keep only rows marked as success and having real text
+            need_cols = {"title", "content", "keyword", "source", "status"}
+            if not need_cols.issubset(df.columns):
+                self.results.setPlainText("History file format not recognised.")
+                return
+
+            df = (
+                df[df["status"] == "success"]
+                .dropna(subset=["title", "content"])
+                .iloc[::-1]          # reverse so newest at top
+            )
+
+            items = [
+                {
+                    "TITLE":   row.title,
+                    "TOPIC":   row.keyword or "—",
+                    "CONTENT": row.content,
+                    "SOURCE":  row.source,
+                }
+                for _, row in df.iterrows()
+            ]
+
+            self.results.setPlainText(self._format_items(items))
+        except Exception as e:
+            self.results.setPlainText(f"⚠️  Failed to read history:\n{e}")
+
+
+    # unchanged search logic, but uses the same formatter
+    def run_search(self):
+        topic = self.keyword_edit.text().strip()
+        if not topic:  # If search box is empty, do nothing
+            return
+            
+        try:
+            news = self.news_manager.get_news(topic, 5)
+            if isinstance(news, str):          # handles possible stringified dict
+                news = ast.literal_eval(news)
+            
+            if not news:
+                self.results.setPlainText("No stories found.")
+                return
+
+            self.results.setPlainText(self._format_items(news.values()))
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
+
 
 class DailyPlanetPortal(QMainWindow):
     def __init__(self, cache_dir=".cache"):

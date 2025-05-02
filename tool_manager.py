@@ -1,193 +1,116 @@
 import os
-import json
 import requests
 import pandas as pd
-from urllib.parse import quote, urlparse
-from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 from newspaper import Article
 from pyshorteners import Shortener
-from typing import Annotated
-from gnews import GNews
-import random
 from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Tuple
 
 
 class ToolManager:
-    def __init__(self, article_count=5, cache_dir=".cache", exclude_websites=None):
+    """Fetch and cache news articles using NewsAPI."""
+
+    BASE_URL = "https://newsapi.org/v2/everything"
+
+    def __init__(
+        self,
+        *,
+        newsapi_key: str = os.getenv("NEWSAPI_KEY", "bdb6ca050c0742b3a0e2dba3f593a338"),
+        article_count: int = 5,
+        cache_dir: str = ".cache",
+        exclude_websites: Optional[List[str]] = None,
+    ) -> None:
+        self.api_key = newsapi_key
         self.article_count = article_count
         self.cache_dir = cache_dir
-        self.urls_file = f"{self.cache_dir}/news_database.csv"
-        self.google_news = GNews()
-        self.google_news.period = '24h'
-        self.google_news.max_results = self.article_count
-        self.google_news.country = 'United States'
-        self.google_news.language = 'english'
-        self.google_news.exclude_websites = exclude_websites if exclude_websites else ['cnn.com']
+        self.urls_file = f"{cache_dir}/news_database.csv"
+        self.exclude_websites = exclude_websites or ["cnn.com"]
         self.shortener = Shortener(timeout=5)
-        self.NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", 'bdb6ca050c0742b3a0e2dba3f593a338')
 
-        if not os.path.exists(self.cache_dir):
-            os.makedirs(self.cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
 
-    # def get_decoding_params(self, gn_art_id):
-    #     headers = {'User-Agent': 'Mozilla/5.0'}
-    #     response = requests.get(f"https://news.google.com/articles/{gn_art_id}", headers=headers)
-    #     response.raise_for_status()
-    #     soup = BeautifulSoup(response.text, "lxml")
-    #     div = soup.select_one("c-wiz > div")
-    #     return {
-    #         "signature": div.get("data-n-a-sg"),
-    #         "timestamp": div.get("data-n-a-ts"),
-    #         "gn_art_id": gn_art_id,
-    #     }
+    @staticmethod
+    def _domain(url: str) -> str:
+        return urlparse(url).netloc.lower()
 
-    # def decode_urls(self, articles):
-    #     articles_reqs = [
-    #         [
-    #             "Fbv4je",
-    #             f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],"{art["gn_art_id"]}",{art["timestamp"]},"{art["signature"]}"]',
-    #         ]
-    #         for art in articles
-    #     ]
-    #     payload = f"f.req={quote(json.dumps([articles_reqs]))}"
-    #     headers = {"content-type": "application/x-www-form-urlencoded;charset=UTF-8"}
-    #     response = requests.post(
-    #         url="https://news.google.com/_/DotsSplashUi/data/batchexecute",
-    #         headers=headers,
-    #         data=payload,
-    #     )
-    #     response.raise_for_status()
-    #     return [json.loads(res[2])[1] for res in json.loads(response.text.split("\n\n")[1])[:-2]]
-    # from googlenewsdecoder import gnewsdecoder
+    def _is_excluded(self, url: str) -> bool:
+        return any(self._domain(url).endswith(dom) for dom in self.exclude_websites)
 
-     #def decode_urls(self, articles):
-      #   print('Articles:', articles)
-       #  interval_time = 1  # interval is optional, default is None
+    def _dedup(self, urls: List[str], kws: List[str]) -> Tuple[List[str], List[str]]:
+        merged: Dict[str, str] = {}
+        for u, k in zip(urls, kws):
+            merged[u] = f"{merged.get(u, '')}, {k}".strip(', ')
+        return list(merged.keys()), list(merged.values())
 
-#         source_url = "https://news.google.com/read/CBMi2AFBVV95cUxPd1ZCc1loODVVNHpnbFFTVHFkTG94eWh1NWhTeE9yT1RyNTRXMVV2S1VIUFM3ZlVkVjl6UHh3RkJ0bXdaTVRlcHBjMWFWTkhvZWVuM3pBMEtEdlllRDBveGdIUm9GUnJ4ajd1YWR5cWs3VFA5V2dsZnY1RDZhVDdORHRSSE9EalF2TndWdlh4bkJOWU5UMTdIV2RCc285Q2p3MFA4WnpodUNqN1RNREMwa3d5T2ZHS0JlX0MySGZLc01kWDNtUEkzemtkbWhTZXdQTmdfU1JJaXY?hl=en-US&gl=US&ceid=US%3Aen"
+    def _fetch_urls(self, keyword: str) -> List[str]:
+        params = {
+            "q": keyword,
+            "language": "en",
+            "from": (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d"),
+            "sortBy": "popularity",
+            "pageSize": self.article_count,
+            "apiKey": self.api_key,
+        }
+        data = requests.get(self.BASE_URL, params=params, timeout=10).json()
+        if data.get("status") != "ok":
+            raise RuntimeError(data.get("message", "Unknown NewsAPI error"))
+        return [a["url"] for a in data.get("articles", []) if a.get("url") and not self._is_excluded(a["url"])]
 
- #        try:
-  #           decoded_url = gnewsdecoder(source_url, interval=interval_time)
-
-   #          if decoded_url.get("status"):
-    #             print("Decoded URL:", decoded_url["decoded_url"])
-     #        else:
-      #           print("Error:", decoded_url["message"])
-       #  except Exception as e:
-      #       print(f"Error occurred: {e}")
-
-    def deduplicate_news_list(self, urls, keywords):
-        urls_dict = {}
-        for i in range(len(urls)):
-            if urls[i] not in urls_dict:
-                urls_dict[urls[i]] = keywords[i]
-            else:
-                urls_dict[urls[i]] += ', ' + keywords[i]
-        return list(urls_dict.keys()), list(urls_dict.values())
-
-    def create_news_dict(self, article_list):
-        news_dict = {}
-        for i, article in enumerate(article_list):
-            news_key = f"NEWS {i+1}"
-            news_dict[news_key] = {
-                "TOPIC": article.keyword,
-                "TITLE": article.title,
-                "CONTENT": article.text.replace('\n\n', '\n')[:1000],
-                "SOURCE": article.short_url
-            }
-        return news_dict
-
-    def read_news_articles(self, urls, keywords):
+    def _ensure_csv(self) -> pd.DataFrame:
         if not os.path.isfile(self.urls_file):
-            df_urls = pd.DataFrame(columns=['source', 'keyword', 'title', 'content', 'status'])
-            df_urls.to_csv(self.urls_file)
-        else:
-            df_urls = pd.read_csv(self.urls_file, index_col='Unnamed: 0')
+            cols = ["source", "short_url", "keyword", "title", "content", "status"]
+            pd.DataFrame(columns=cols).to_csv(self.urls_file, index=False)
+        return pd.read_csv(self.urls_file)
 
-        # urls = [url for url in urls if url not in df_urls['urls'].values]
-        urls, keywords = self.deduplicate_news_list(urls, keywords)
-
-        if len(urls) == 0:
-            return []
-
-        article_list = []
-        for i in range(len(urls)):
+    def _scrape(self, urls: List[str], kws: List[str]):
+        df = self._ensure_csv()
+        urls, kws = self._dedup(urls, kws)
+        arts = []
+        for url, kw in zip(urls, kws):
             try:
-                article = Article(urls[i])
-                article.download()
-                article.parse()
-                if article.text and len(article.text.strip().split('\n')) > 1:
-                    article.keyword = keywords[i]
-                    df_urls = pd.concat([pd.DataFrame([[urls[i], article.keyword, article.title, article.text.replace('\n\n', '\n'), 'success']], columns=df_urls.columns), df_urls], ignore_index=True)
-                    article_list.append(article)
+                art = Article(url)
+                art.download(); art.parse()
+                if art.text and len(art.text.split()) > 50:
+                    short = self.shortener.tinyurl.short(url)
+                    art.keyword, art.short_url = kw, short
+                    df.loc[len(df)] = [url, short, kw, art.title, art.text, "success"]
+                    arts.append(art)
                 else:
-                    df_urls = pd.concat([pd.DataFrame([[urls[i], None, None, None, 'empty content']], columns=df_urls.columns), df_urls], ignore_index=True)
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                df_urls = pd.concat([pd.DataFrame([[urls[i], None, None, None, 'scraping error']], columns=df_urls.columns), df_urls], ignore_index=True)
-        df_urls.to_csv(self.urls_file)
-        return article_list
+                    df.loc[len(df)] = [url, None, kw, None, None, "empty"]
+            except Exception:
+                df.loc[len(df)] = [url, None, kw, None, None, "error"]
+        df.to_csv(self.urls_file, index=False)
+        return arts
 
-    def get_news_articles(self, keyword_list, count):
-        self.google_news.max_results = count
-        urls, keywords = [], []
-
-        for keyword in keyword_list:
+    def get_news_articles(self, keywords: List[str], count: Optional[int] = None):
+        count = count or self.article_count
+        all_urls, all_kws = [], []
+        for kw in keywords:
             try:
-                # sources = self.google_news.get_news(keyword)
-                url = ('https://newsapi.org/v2/everything?'
-                    f'q={keyword}&'
-                    f'from={(datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")}&'
-                    'sortBy=popularity&'
-                    f'apiKey={self.NEWSAPI_KEY}')
-                # print('URL: ', url)
-                response = requests.get(url).json()
-                sources = response['articles']
-                sources = [source['url'] for source in sources if source['url']]
-                sources = random.sample(sources, min(count, len(sources)))
-                # print('SOURCES: ', sources)
-                # print(response.json())
+                urls = self._fetch_urls(kw)[:count]
+                all_urls.extend(urls)
+                all_kws.extend([kw] * len(urls))
             except Exception as e:
-                print(f"Error fetching news for {keyword}: {e}")
-                continue
-            # print('SOURCES: ', sources)
-            for source in sources:
-                try:
-                    # art_id = urlparse(source['url']).path.split("/")[-1]
-                    # print('Art ID: ', art_id)
-                    # params = self.get_decoding_params(art_id)
-                    # print('PARAMS: ', params)
-                    # decoded = self.decode_urls([params])
-                    # print('DECODED: ', decoded)
-                    if source:
-                        urls.append(source)
-                        keywords.append(keyword)
-                except Exception as e:
-                    #print stack trace
-                    import traceback
-                    traceback.print_exc()
-                    print(f"Error decoding URL for {keyword}: {e}")
-                    continue
+                print(f"[ToolManager] fetch failed for '{kw}': {e}")
 
-        if len(urls) == 0:
-            # default news
-            return {"NEWS 1": {"TOPIC": "AI", "TITLE": "Decagon Named to 2025 Forbes AI 50 List of Top Artificial Intelligence Companies", "CONTENT": "SAN FRANCISCO--(BUSINESS WIRE)--Decagon, the leading innovator in conversational AI agents for customer experience, today announced it has been named to the 2025 Forbes AI 50 — Forbes\" annual list of the most promising, privately-held companies using artificial intelligence to shape the future of business and society. This marks Decagon’s first appearance on the prestigious list, which spotlights standout AI companies across North America.\n'Being able to effectively handle tasks like refunds or account changes is table stakes. What sets the best products apart is their ability to meet customers where they are, completing complex workflows and delivering deeply personalized experiences.'\nShare\nWith growing hype around AI agents, few companies have delivered meaningful, enterprise-ready results. Decagon sets itself apart by building AI agents that drive immediate and measurable impact. Its technology is used by well-known companies — including Hertz, Eventbrite, Duolingo, ClassPass, Noti", "SOURCE": "https://tinyurl.com/2dm2xvn4"}}
-            # return None
+        if not all_urls:
+            return {
+                "NEWS 1": {
+                    "TOPIC": "AI",
+                    "TITLE": "Decagon Named to 2025 Forbes AI 50 List of Top Artificial Intelligence Companies",
+                    "CONTENT": "SAN FRANCISCO--(BUSINESS WIRE)--Decagon ...",
+                    "SOURCE": "https://tinyurl.com/2dm2xvn4",
+                }
+            }
 
-        # print('URLs: ', urls[0])
-        article_list = self.read_news_articles(urls, keywords)
-        # print('Article List: ', len(article_list))
-
-        for article in article_list:
-            try:
-                article.short_url = self.shortener.tinyurl.short(article.url)
-            except Exception as e:
-                print(f"Error shortening URL: {e}")
-                article.short_url = article.url
-        
-        print('Article List: ', article_list)
-
-        result = self.create_news_dict(article_list)
-        # print('RESULT: ', result)
-        return result
+        articles = self._scrape(all_urls, all_kws)
+        return {
+            f"NEWS {i}": {
+                "TOPIC": a.keyword,
+                "TITLE": a.title,
+                "CONTENT": a.text.replace("\n\n", "\n")[:1000],
+                "SOURCE": a.short_url,
+            }
+            for i, a in enumerate(articles, 1)
+        }

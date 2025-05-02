@@ -2,15 +2,20 @@ import sys
 import math
 import os
 from dotenv import load_dotenv
+import json
+import ast
 import praw
+import pandas as pd
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
                              QVBoxLayout, QHBoxLayout, QWidget, QFrame,
-                             QMessageBox, QTextEdit, QComboBox, QDialog, QFormLayout)
+                             QMessageBox, QTextEdit, QLineEdit, QComboBox, QDialog, QFormLayout)
 from PyQt5.QtGui import (QPixmap, QPalette, QBrush, QPainter, QColor, QFont, QImage)
 from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QRectF, pyqtProperty)
+from news_manager import NewsManager
+import pandas as pd
 
-# Load environment variables from custom file
-load_dotenv(dotenv_path="DailyPlanetPortal.env")  # fixed format for explicit env file
+# Load environment variables
+load_dotenv()
 
 class LoadingSpinner(QFrame):
     def __init__(self, parent=None):
@@ -32,7 +37,7 @@ class LoadingSpinner(QFrame):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        color = QColor("#00FFFF")
+        color = QColor("#00FFFF")  # neon blue
         for i in range(12):
             color.setAlphaF((i + 1) / 12.0)
             painter.setBrush(color)
@@ -50,12 +55,127 @@ class LoadingSpinner(QFrame):
         self._progress = value
         self.update()
 
+
+class NewsBrowserDialog(QDialog):
+    def __init__(self, news_manager, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🔥 Browse Hot News")
+        self.resize(600, 500)
+
+        self.news_manager = news_manager
+        self.db_path = getattr(self.news_manager, "urls_file",
+                               os.path.join(".cache", "news_database.csv"))
+
+        vbox = QVBoxLayout(self)
+
+        # top bar:   [ keyword box ] [Search] [History]
+        hbox = QHBoxLayout()
+        self.keyword_edit = QLineEdit()
+        self.keyword_edit.setPlaceholderText("keyword (e.g. AI, climate, F1 …)")
+
+        search_btn = QPushButton("Search")
+        search_btn.clicked.connect(self.run_search)
+
+        history_btn = QPushButton("History")
+        history_btn.clicked.connect(self.show_history)
+
+        hbox.addWidget(self.keyword_edit, 1)
+        hbox.addWidget(search_btn)
+        hbox.addWidget(history_btn)
+        vbox.addLayout(hbox)
+
+        # results pane
+        self.results = QTextEdit(readOnly=True)
+        self.results.setStyleSheet("font: 12px 'Courier New';")
+        vbox.addWidget(self.results, 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        vbox.addWidget(close_btn, alignment=Qt.AlignRight)
+
+        # ← show history immediately
+        self.show_history()
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _format_items(self, items):
+        lines = []
+        for item in items:
+            lines.append(f"📰  {item['TITLE']}\n"
+                         f"    • Topic  : {item['TOPIC']}\n"
+                         f"    • Source : {item['SOURCE']}\n"
+                         f"    • Preview: {item['CONTENT'][:160]}…\n")
+        return "\n".join(lines) if lines else "No stories found."
+
+    # load most‑recent cached rows
+    def show_history(self, count: int = 10):
+        """
+        Display the latest `count` successfully‑scraped stories
+        from the local CSV cache.  Newest first.
+        """
+        try:
+            if not os.path.isfile(self.db_path):
+                self.results.setPlainText("No history yet.")
+                return
+
+            df = pd.read_csv(self.db_path)
+
+            # keep only rows marked as success and having real text
+            need_cols = {"title", "content", "keyword", "source", "status"}
+            if not need_cols.issubset(df.columns):
+                self.results.setPlainText("History file format not recognised.")
+                return
+
+            df = (
+                df[df["status"] == "success"]
+                .dropna(subset=["title", "content"])
+                .iloc[::-1]          # reverse so newest at top
+            )
+
+            items = [
+                {
+                    "TITLE":   row.title,
+                    "TOPIC":   row.keyword or "—",
+                    "CONTENT": row.content,
+                    "SOURCE":  row.source,
+                }
+                for _, row in df.iterrows()
+            ]
+
+            self.results.setPlainText(self._format_items(items))
+        except Exception as e:
+            self.results.setPlainText(f"⚠️  Failed to read history:\n{e}")
+
+
+    # unchanged search logic, but uses the same formatter
+    def run_search(self):
+        topic = self.keyword_edit.text().strip()
+        if not topic:  # If search box is empty, do nothing
+            return
+            
+        try:
+            news = self.news_manager.get_news(topic, 5)
+            if isinstance(news, str):          # handles possible stringified dict
+                news = ast.literal_eval(news)
+            
+            if not news:
+                self.results.setPlainText("No stories found.")
+                return
+
+            self.results.setPlainText(self._format_items(news.values()))
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+
 class DailyPlanetPortal(QMainWindow):
-    def __init__(self):
+    def __init__(self, cache_dir=".cache"):
         super().__init__()
         self.reddit = None
         self.authenticated = False
         self.loading_value = 0
+        self.cache_dir = cache_dir
+        self.news_database = f"{self.cache_dir}/news_database.csv"
+        self.news_manager = NewsManager()
+
         self.messages = [
             "Initializing portal systems...",
             "Loading security protocols...",
@@ -64,7 +184,8 @@ class DailyPlanetPortal(QMainWindow):
             "Preparing dashboard..."
         ]
         self.current_message = 0
-        self.background_image = QImage("/Users/kodan/Desktop/DailyPlanetPortal/dpgui.png")
+
+        self.background_image = QImage("Newsret.jpeg")
 
         self.setWindowTitle("Daily Planet Reddit Portal")
         self.resize(1200, 800)
@@ -73,7 +194,7 @@ class DailyPlanetPortal(QMainWindow):
         self.init_loading_screen()
 
     def set_background(self, widget):
-        if not self.background_image.isNull():
+        if self.background_image:
             palette = widget.palette()
             palette.setBrush(QPalette.Window, QBrush(QPixmap.fromImage(self.background_image).scaled(
                 self.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
@@ -159,7 +280,7 @@ class DailyPlanetPortal(QMainWindow):
             self.reddit = praw.Reddit(
                 client_id=os.getenv("REDDIT_CLIENT_ID"),
                 client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-                user_agent="DailyPlanetPortal/0.1 by YOUR_USERNAME",
+                user_agent=os.getenv("REDDIT_USER_AGENT"),
                 username=os.getenv("REDDIT_USERNAME"),
                 password=os.getenv("REDDIT_PASSWORD")
             )
@@ -183,7 +304,7 @@ class DailyPlanetPortal(QMainWindow):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(30)
 
-        title = QLabel("\U0001F6F0\uFE0F DAILY PLANET PORTAL")
+        title = QLabel("🛰️ DAILY PLANET PORTAL")
         title.setStyleSheet("""
             QLabel {
                 color: #00FFFF;
@@ -197,17 +318,17 @@ class DailyPlanetPortal(QMainWindow):
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(20)
 
-        post_button = QPushButton("\U0001F4E4 Post News to Reddit")
+        post_button = QPushButton("📤 Post News to Reddit")
         post_button.setFixedSize(250, 60)
         post_button.setStyleSheet(self.button_style())
         post_button.clicked.connect(self.show_post_dialog)
 
-        view_button = QPushButton("\U0001F4CA View My Activity")
+        view_button = QPushButton("📊 View My Activity")
         view_button.setFixedSize(250, 60)
         view_button.setStyleSheet(self.button_style())
         view_button.clicked.connect(self.view_my_activity)
 
-        browse_button = QPushButton("\U0001F525 Browse Hot News")
+        browse_button = QPushButton("🔥 Browse Hot News")
         browse_button.setFixedSize(250, 60)
         browse_button.setStyleSheet(self.button_style())
         browse_button.clicked.connect(self.browse_hot_news)
@@ -218,7 +339,7 @@ class DailyPlanetPortal(QMainWindow):
 
         layout.addLayout(buttons_layout)
 
-        footer = QLabel("Secure Access Enabled | Daily Planet v1.2 \U0001F680")
+        footer = QLabel("Secure Access Enabled | Daily Planet v1.2 🚀")
         footer.setStyleSheet("""
             QLabel {
                 color: #777777;
@@ -249,16 +370,18 @@ class DailyPlanetPortal(QMainWindow):
 
     def show_post_dialog(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("\U0001F4E4 Post News to Reddit")
+        dialog.setWindowTitle("📤 Post News to Reddit")
         dialog.resize(400, 300)
         layout = QFormLayout()
 
-        self.sample_titles = [
-            "Breaking: AI Model Sets New Accuracy Record",
-            "Python 3.13 Beta Released!",
-            "F1 2025 Season Kick-off Details",
-            "World Leaders Convene for Climate Talks"
-        ]
+        self.sample_titles = pd.read_csv(self.news_database, usecols=['title'])['title'].dropna().tolist()
+        self.sample_titles = list(set(self.sample_titles))
+        # self.sample_titles = [
+        #     "Breaking: AI Model Sets New Accuracy Record",
+        #     "Python 3.13 Beta Released!",
+        #     "F1 2025 Season Kick-off Details",
+        #     "World Leaders Convene for Climate Talks"
+        # ]
 
         self.title_dropdown = QComboBox()
         self.title_dropdown.addItems(self.sample_titles)
@@ -279,13 +402,11 @@ class DailyPlanetPortal(QMainWindow):
         comment_text = self.comment_box.toPlainText()
 
         try:
-            subreddit = self.reddit.subreddit("test")  # use your own subreddit here
+            subreddit = self.reddit.subreddit("r/DailyPlanetPortal")
             post = subreddit.submit(title=selected_title, selftext=comment_text)
             QMessageBox.information(self, "Success", f"Posted successfully: {post.title}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to post: {str(e)}")
-
-    # -- beginning of the file remains unchanged --
 
     def view_my_activity(self):
         try:
@@ -310,7 +431,7 @@ class DailyPlanetPortal(QMainWindow):
                 index = self.activity_list.currentIndex()
                 if index >= 0 and index < len(self.activity_data):
                     post = self.activity_data[index]
-                    summary_box.setText(f"Title: {post.title}\n\nURL: {post.url}\n\nScore: {post.score}")
+                    summary_box.setText(f"Title: {post.title}\n\nURL: {post.url}")
 
             self.activity_list.currentIndexChanged.connect(show_post_summary)
 
@@ -319,45 +440,19 @@ class DailyPlanetPortal(QMainWindow):
             dialog.setLayout(layout)
             show_post_summary()
             dialog.exec_()
-
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
     def browse_hot_news(self):
         try:
-            posts = list(self.reddit.subreddit("worldnews+technology+python+F1+machinelearning").hot(limit=10))
+            dlg = NewsBrowserDialog(self.news_manager, self)
+            dlg.exec_()
 
-            dialog = QDialog(self)
-            dialog.setWindowTitle("🔥 Browse Trending News")
-            dialog.resize(600, 400)
-            layout = QVBoxLayout()
-
-            self.news_list = QComboBox()
-            self.news_posts = []
-            for post in posts:
-                self.news_posts.append(post)
-                self.news_list.addItem(post.title)
-
-            summary_box = QTextEdit()
-            summary_box.setReadOnly(True)
-
-            def show_news_summary():
-                index = self.news_list.currentIndex()
-                if index >= 0 and index < len(self.news_posts):
-                    post = self.news_posts[index]
-                    summary_box.setText(f"Title: {post.title}\n\nURL: {post.url}\n\nScore: {post.score}")
-
-            self.news_list.currentIndexChanged.connect(show_news_summary)
-
-            layout.addWidget(self.news_list)
-            layout.addWidget(summary_box)
-            dialog.setLayout(layout)
-            show_news_summary()
-            dialog.exec_()
-
+            # # hot_posts = self.reddit.subreddit("worldnews+technology+python+F1+machinelearning").hot(limit=5)
+            # posts_info = "\n\n".join([f"{n['TITLE']}\n{n['SOURCE']}" for n in news.values()])
+            # QMessageBox.information(self, "Trending News", posts_info or "No trending news found.")
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
-
 
     def resizeEvent(self, event):
         self.set_background(self.centralWidget())

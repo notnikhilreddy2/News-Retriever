@@ -9,7 +9,11 @@ from typing import List, Dict, Optional, Tuple
 
 
 class ToolManager:
-    """Fetch and cache news articles using NewsAPI."""
+    """
+    A utility class to fetch and cache news articles using NewsAPI
+    and parse them with newspaper3k. Supports keyword-based querying,
+    basic deduplication, and local CSV caching.
+    """
 
     BASE_URL = "https://newsapi.org/v2/everything"
 
@@ -24,7 +28,7 @@ class ToolManager:
         self.api_key = newsapi_key
         self.article_count = article_count
         self.cache_dir = cache_dir
-        self.urls_file = f"{cache_dir}/news_database.csv"
+        self.urls_file = os.path.join(cache_dir, "news_database.csv")
         self.exclude_websites = exclude_websites or ["cnn.com"]
         self.shortener = Shortener(timeout=5)
 
@@ -35,15 +39,17 @@ class ToolManager:
         return urlparse(url).netloc.lower()
 
     def _is_excluded(self, url: str) -> bool:
-        return any(self._domain(url).endswith(dom) for dom in self.exclude_websites)
+        return any(self._domain(url).endswith(domain) for domain in self.exclude_websites)
 
-    def _dedup(self, urls: List[str], kws: List[str]) -> Tuple[List[str], List[str]]:
+    def _dedup(self, urls: List[str], keywords: List[str]) -> Tuple[List[str], List[str]]:
+        """Deduplicate articles while preserving associated keywords."""
         merged: Dict[str, str] = {}
-        for u, k in zip(urls, kws):
-            merged[u] = f"{merged.get(u, '')}, {k}".strip(', ')
+        for url, keyword in zip(urls, keywords):
+            merged[url] = f"{merged.get(url, '')}, {keyword}".strip(', ')
         return list(merged.keys()), list(merged.values())
 
     def _fetch_urls(self, keyword: str) -> List[str]:
+        """Fetch article URLs from NewsAPI for a given keyword."""
         params = {
             "q": keyword,
             "language": "en",
@@ -52,48 +58,65 @@ class ToolManager:
             "pageSize": self.article_count,
             "apiKey": self.api_key,
         }
-        data = requests.get(self.BASE_URL, params=params, timeout=10).json()
+
+        response = requests.get(self.BASE_URL, params=params, timeout=10)
+        data = response.json()
         if data.get("status") != "ok":
             raise RuntimeError(data.get("message", "Unknown NewsAPI error"))
-        return [a["url"] for a in data.get("articles", []) if a.get("url") and not self._is_excluded(a["url"])]
+
+        return [
+            article["url"]
+            for article in data.get("articles", [])
+            if article.get("url") and not self._is_excluded(article["url"])
+        ]
 
     def _ensure_csv(self) -> pd.DataFrame:
+        """Ensure the CSV cache file exists and return its DataFrame."""
         if not os.path.isfile(self.urls_file):
-            cols = ["source", "short_url", "keyword", "title", "content", "status"]
-            pd.DataFrame(columns=cols).to_csv(self.urls_file, index=False)
+            columns = ["source", "short_url", "keyword", "title", "content", "status"]
+            pd.DataFrame(columns=columns).to_csv(self.urls_file, index=False)
         return pd.read_csv(self.urls_file)
 
-    def _scrape(self, urls: List[str], kws: List[str]):
+    def _scrape(self, urls: List[str], keywords: List[str]):
+        """Scrape full article text and cache to CSV."""
         df = self._ensure_csv()
-        urls, kws = self._dedup(urls, kws)
-        arts = []
-        for url, kw in zip(urls, kws):
+        urls, keywords = self._dedup(urls, keywords)
+        articles = []
+
+        for url, keyword in zip(urls, keywords):
             try:
-                art = Article(url)
-                art.download(); art.parse()
-                if art.text and len(art.text.split()) > 50:
-                    short = self.shortener.tinyurl.short(url)
-                    art.keyword, art.short_url = kw, short
-                    df.loc[len(df)] = [url, short, kw, art.title, art.text, "success"]
-                    arts.append(art)
+                article = Article(url)
+                article.download()
+                article.parse()
+
+                if article.text and len(article.text.split()) > 50:
+                    short_url = self.shortener.tinyurl.short(url)
+                    article.keyword = keyword
+                    article.short_url = short_url
+                    df.loc[len(df)] = [url, short_url, keyword, article.title, article.text, "success"]
+                    articles.append(article)
                 else:
-                    df.loc[len(df)] = [url, None, kw, None, None, "empty"]
+                    df.loc[len(df)] = [url, None, keyword, None, None, "empty"]
             except Exception:
-                df.loc[len(df)] = [url, None, kw, None, None, "error"]
+                df.loc[len(df)] = [url, None, keyword, None, None, "error"]
+
         df.to_csv(self.urls_file, index=False)
-        return arts
+        return articles
 
     def get_news_articles(self, keywords: List[str], count: Optional[int] = None):
+        """Main method to get structured news data from keywords."""
         count = count or self.article_count
-        all_urls, all_kws = [], []
-        for kw in keywords:
-            try:
-                urls = self._fetch_urls(kw)[:count]
-                all_urls.extend(urls)
-                all_kws.extend([kw] * len(urls))
-            except Exception as e:
-                print(f"[ToolManager] fetch failed for '{kw}': {e}")
+        all_urls, all_keywords = [], []
 
+        for keyword in keywords:
+            try:
+                urls = self._fetch_urls(keyword)[:count]
+                all_urls.extend(urls)
+                all_keywords.extend([keyword] * len(urls))
+            except Exception as e:
+                print(f"[ToolManager] Fetch failed for '{keyword}': {e}")
+
+        # If nothing is fetched, return a static fallback sample
         if not all_urls:
             return {
                 "NEWS 1": {
@@ -104,13 +127,22 @@ class ToolManager:
                 }
             }
 
-        articles = self._scrape(all_urls, all_kws)
+        articles = self._scrape(all_urls, all_keywords)
         return {
             f"NEWS {i}": {
-                "TOPIC": a.keyword,
-                "TITLE": a.title,
-                "CONTENT": a.text.replace("\n\n", "\n")[:1000],
-                "SOURCE": a.short_url,
+                "TOPIC": article.keyword,
+                "TITLE": article.title,
+                "CONTENT": article.text.replace("\n\n", "\n")[:1000],  # limit to 1000 chars
+                "SOURCE": article.short_url,
             }
-            for i, a in enumerate(articles, 1)
+            for i, article in enumerate(articles, 1)
         }
+
+
+# Example usage
+if __name__ == "__main__":
+    manager = ToolManager()
+    articles = manager.get_news_articles(["AI", "climate change"], count=3)
+    for key, article in articles.items():
+        print(f"{key}: {article['TITLE']} ({article['SOURCE']})")
+
